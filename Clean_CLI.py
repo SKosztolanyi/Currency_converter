@@ -1,4 +1,4 @@
-#!/home/pista/anaconda3/bin/python
+#!/usr/bin/env python3
 """
 Created on Sat Aug 12 16:18:30 2017
 
@@ -38,18 +38,18 @@ class ConvertMoney(object):
         self.input_rate = rates_table['rate'][(rates_table['code'] == self.in_curr_symbol) |
                                         (rates_table['symbol'] == self.in_curr_symbol)].values[0]
         self.output_rate = rates_table['rate'][(rates_table['code'] == self.out_curr_symbol) |
-                                        (rates_table['symbol'] == self.out_curr_symbol)].values[0]
+                                        (rates_table['symbol'] == self.out_curr_symbol)].values
         self.input_index = rates_table['amount_index'][(rates_table['code'] == self.in_curr_symbol) |
                                         (rates_table['symbol'] == self.in_curr_symbol)].values[0]
         self.output_index = rates_table['amount_index'][(rates_table['code'] == self.out_curr_symbol) |
-                                        (rates_table['symbol'] == self.out_curr_symbol)].values[0]
+                                        (rates_table['symbol'] == self.out_curr_symbol)].values
         self.input_currency = rates_table['code'][(rates_table['code'] == self.in_curr_symbol) |
                                         (rates_table['symbol'] == self.in_curr_symbol)].values[0]
         self.output_currency = rates_table['code'][(rates_table['code'] == self.out_curr_symbol) |
-                                        (rates_table['symbol'] == self.out_curr_symbol)].values[0]
+                                        (rates_table['symbol'] == self.out_curr_symbol)].values
         rates_table['CZK_amount'] = self.amount/self.input_index*self.input_rate
         rates_table['converted_amount'] = (rates_table['CZK_amount']*rates_table['amount_index']/
-                                          rates_table['rate'])
+                                          rates_table['rate']).round(2)
         self.output_table = rates_table.loc[:,['code', 'converted_amount']]
                      
     def convert_currency(self):
@@ -134,7 +134,7 @@ def complete_CNB_table(cnb_table):
 #                                ignore_index=True)
     cnb_table.loc[len(cnb_table)] = ['Česko', 'koruna', 1, 'CZK', 1,
                                                cnb_table['date'][0]]
-    cnb_table.to_csv(''.join(['cnb_table_', cnb_table['date'][0], '.csv']),
+    cnb_table.to_csv(''.join(['rates_tables/cnb_table_', cnb_table['date'][0], '.csv']),
                       sep=';', index=False)
     return cnb_table
 
@@ -152,44 +152,47 @@ def download_symbols_table():
     text_header = [header.get_text() for header in html_header.find_all('th')]
     text_rows = [[item.get_text() for item in row.find_all('td')] for row in html_rows]
     # for multirows that have missing country value, insert the value from previous row
-    updated_rows = [text_rows[i].insert(0, text_rows[i-1][0]) if len(text_rows[i]) == 5 
-                    else text_rows[i] for i in range(len(text_rows))]
-    return updated_rows
+    for i in range(len(text_rows)):
+        if len(text_rows[i]) == 5:
+            text_rows[i].insert(0, text_rows[i-1][0])
+    
+    return pd.DataFrame(text_rows, columns = text_header)
     
 def clean_symbols_table(raw_symbols_table):
     """
     """
-    rename_df = pd.DataFrame(raw_symbols_table, 
-                             columns=['state', 'currency', 'symbol',
-                                      'ISO','fractional_unit', 'to_basic'])
+    pd.options.mode.chained_assignment = None
+    rename_df = raw_symbols_table.copy()
+    raw_symbols_table.columns = ['state', 'currency', 'symbol',
+                       'code','fractional_unit', 'to_basic']
     # remove all brackets together with text using regex
     clean_df = rename_df.replace('\[[^]]*\]', '', regex=True)
     # remove symbols if there are more than one
     clean_df['symbol'] = clean_df['symbol'].replace('\s(.*)', '', regex=True)
 
-    clean_df.to_csv('currencies_full.csv', sep=';', index=False)
+    clean_df.to_csv('symbols_table/currencies_full.csv', sep=';', index=False)
 
-    slice_df = clean_df.loc[:, ['currency', 'symbol', 'ISO']]
+    slice_df = clean_df.loc[:, ['currency', 'symbol', 'code']]
 
-    deduplicated_df = slice_df.drop_duplicates(subset=['symbol', 'ISO'])
+    deduplicated_df = slice_df.drop_duplicates(subset=['symbol', 'code'])
     deduplicated_df['symbol'][(deduplicated_df['currency'].str.contains('dollar')) 
-                             & (deduplicated_df['ISO'] != 'USD')] = ''
+                             & (deduplicated_df['code'] != 'USD')] = ''
     deduplicated_df['symbol'][(deduplicated_df['currency'].str.contains('pound')) 
-                             & (deduplicated_df['ISO'] != 'GBP')] = ''
+                             & (deduplicated_df['code'] != 'GBP')] = ''
     deduplicated_df.to_csv('symbols_table/symbols_table.csv', sep=';', index=False)
     return deduplicated_df
 
 
 # main function
 def main():
-    # parse imput
+    # parse input
     parser = argparse.ArgumentParser(description='Process \
                                      amount and currency input.')
-    parser.add_argument('-a', '--amount', dest='amount')
+    parser.add_argument('-a', '--amount', type = float, dest='amount')
     parser.add_argument('-i', '--input_currency', dest='input_currency',
                         help='original currency, code or symbol')
     parser.add_argument('-o', '--output_currency', dest = 'output_currency',
-                        default='All',
+                        default='ALL',
                         help='desired currency for conversion (default: convert to all)')
     args = parser.parse_args()
 
@@ -197,8 +200,10 @@ def main():
     create_directories('symbols_table', 'rates_tables')
     symbols_file = Path('symbols_table/symbols_table.csv')
     current_cnb_date = create_cnb_date('now')
+    print(current_cnb_date)
     rates_file = Path(''.join(['rates_table/cnb_table_',
                                current_cnb_date, '.csv']))
+    print(symbols_file.is_file())
     if symbols_file.is_file():
         symbols_df = pd.read_csv(symbols_file, sep=';')
     else:
@@ -216,6 +221,8 @@ def main():
                                
     # pass arguments to object
     to_convert = ConvertMoney(args.amount, args.input_currency, args.output_currency)
+    print(args.amount, type(args.amount), to_convert.out_curr_symbol)
+#    to_convert = ConvertMoney(100, 'EUR', 'ALL')
     #to_convert.input_currency
     
     to_convert.get_current_rates(symbol_rates_df)
