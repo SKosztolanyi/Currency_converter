@@ -191,9 +191,9 @@ def clean_symbols_table(raw_symbols_table):
     slice_df = clean_df.loc[:, ['currency', 'symbol', 'code']]
 
     deduplicated_df = slice_df.drop_duplicates(subset=['symbol', 'code'])
-    deduplicated_df['symbol'][(deduplicated_df['currency'].str.contains('dollar')) 
+    deduplicated_df['symbol'][(deduplicated_df['symbol']=='$') 
                              & (deduplicated_df['code'] != 'USD')] = ''
-    deduplicated_df['symbol'][(deduplicated_df['currency'].str.contains('pound')) 
+    deduplicated_df['symbol'][(deduplicated_df['symbol']=='£') 
                              & (deduplicated_df['code'] != 'GBP')] = ''
     deduplicated_df.to_csv('symbols_table/symbols_table.csv', sep=';', index=False)
     return deduplicated_df
@@ -202,9 +202,11 @@ def clean_symbols_table(raw_symbols_table):
 # main function
 def main():
     # parse input
-    parser = argparse.ArgumentParser(description='Process \
-                                     amount and currency input.')
+    parser = argparse.ArgumentParser(description='Tool for converting  \
+        specified amount of money from one currency to another, according to \
+        the current rates of Czech National Bank.')
     parser.add_argument('-a', '--amount', type = float, dest='amount',
+                        default=0.0,
                         help='amount of input currency money to be converted')
     parser.add_argument('-i', '--input_currency', dest='input_currency',
                         help='original currency, code or symbol')
