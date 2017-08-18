@@ -35,6 +35,26 @@ class ConvertMoney(object):
         self.out_curr_symbol = out_curr_symbol
     
     def get_current_rates(self, rates_table):
+        
+        available_currencies = sorted(list(rates_table.loc[:,'code']))
+        try:
+            bad_symbol = self.in_curr_symbol
+            rates_table['code'][(rates_table['code'] == self.in_curr_symbol) |
+                                        (rates_table['symbol'] == self.in_curr_symbol)].values[0]
+            bad_symbol = self.out_curr_symbol
+            if self.out_curr_symbol != 'ALL':
+                rates_table['code'][(rates_table['code'] == self.out_curr_symbol) |
+                        (rates_table['symbol'] == self.out_curr_symbol)].values[0]  
+        except:
+            print(bad_symbol, ''' is not in this currency table.
+            Use one of the available currencies: '''), 
+            print(available_currencies)
+            raise SystemExit
+            
+        self.input_currency = rates_table['code'][(rates_table['code'] == self.in_curr_symbol) |
+                                        (rates_table['symbol'] == self.in_curr_symbol)].values[0]
+        self.output_currency = rates_table['code'][(rates_table['code'] == self.out_curr_symbol) |
+                                        (rates_table['symbol'] == self.out_curr_symbol)].values
         self.input_rate = rates_table['rate'][(rates_table['code'] == self.in_curr_symbol) |
                                         (rates_table['symbol'] == self.in_curr_symbol)].values[0]
         self.output_rate = rates_table['rate'][(rates_table['code'] == self.out_curr_symbol) |
@@ -43,17 +63,13 @@ class ConvertMoney(object):
                                         (rates_table['symbol'] == self.in_curr_symbol)].values[0]
         self.output_index = rates_table['amount_index'][(rates_table['code'] == self.out_curr_symbol) |
                                         (rates_table['symbol'] == self.out_curr_symbol)].values
-        self.input_currency = rates_table['code'][(rates_table['code'] == self.in_curr_symbol) |
-                                        (rates_table['symbol'] == self.in_curr_symbol)].values[0]
-        self.output_currency = rates_table['code'][(rates_table['code'] == self.out_curr_symbol) |
-                                        (rates_table['symbol'] == self.out_curr_symbol)].values
+
         rates_table['CZK_amount'] = self.amount/self.input_index*self.input_rate
         rates_table['converted_amount'] = (rates_table['CZK_amount']*rates_table['amount_index']/
                                           rates_table['rate']).round(2)
         self.output_table = rates_table.loc[:,['code', 'converted_amount']]
                      
     def convert_currency(self):
-        CZK_amount = self.amount/self.input_index*self.input_rate
         full_json = {}
         full_json['input'] = {}
         full_json['input']['amount'] = self.amount
@@ -64,9 +80,9 @@ class ConvertMoney(object):
             full_json['output'] = dict(zip(self.output_table.code,
                                            self.output_table.converted_amount))
         else:
-            output_amount = float(round(CZK_amount/(self.output_index*self.output_rate), 2))
-            full_json['output'][self.output_currency] = output_amount
-        #TODO make it work for more than 1 output       
+            output_amount = self.output_table['converted_amount'][
+                self.output_table['code'] == self.output_currency[0]].values[0]
+            full_json['output'][self.output_currency[0]] = output_amount
         return full_json
 
 
@@ -162,8 +178,8 @@ def clean_symbols_table(raw_symbols_table):
     """
     """
     pd.options.mode.chained_assignment = None
-    rename_df = raw_symbols_table.copy()
-    raw_symbols_table.columns = ['state', 'currency', 'symbol',
+    rename_df = raw_symbols_table.copy(deep=True)
+    rename_df.columns = ['state', 'currency', 'symbol',
                        'code','fractional_unit', 'to_basic']
     # remove all brackets together with text using regex
     clean_df = rename_df.replace('\[[^]]*\]', '', regex=True)
@@ -188,22 +204,22 @@ def main():
     # parse input
     parser = argparse.ArgumentParser(description='Process \
                                      amount and currency input.')
-    parser.add_argument('-a', '--amount', type = float, dest='amount')
+    parser.add_argument('-a', '--amount', type = float, dest='amount',
+                        help='amount of input currency money to be converted')
     parser.add_argument('-i', '--input_currency', dest='input_currency',
                         help='original currency, code or symbol')
     parser.add_argument('-o', '--output_currency', dest = 'output_currency',
                         default='ALL',
-                        help='desired currency for conversion (default: convert to all)')
+                        help='''desired currency for conversion \
+                        (default: convert to all currencies possible)''')
     args = parser.parse_args()
 
     # create currency and conversion rates table
     create_directories('symbols_table', 'rates_tables')
     symbols_file = Path('symbols_table/symbols_table.csv')
     current_cnb_date = create_cnb_date('now')
-    print(current_cnb_date)
     rates_file = Path(''.join(['rates_table/cnb_table_',
                                current_cnb_date, '.csv']))
-    print(symbols_file.is_file())
     if symbols_file.is_file():
         symbols_df = pd.read_csv(symbols_file, sep=';')
     else:
@@ -221,14 +237,7 @@ def main():
                                
     # pass arguments to object
     to_convert = ConvertMoney(args.amount, args.input_currency, args.output_currency)
-    print(args.amount, type(args.amount), to_convert.out_curr_symbol)
-#    to_convert = ConvertMoney(100, 'EUR', 'ALL')
-    #to_convert.input_currency
-    
     to_convert.get_current_rates(symbol_rates_df)
-    #to_convert.output_index
-    #to_convert.output_currency
-    #to_convert.input_rate
     parsed_json = json.dumps(to_convert.convert_currency(), indent = 4)
     print(parsed_json)
     
