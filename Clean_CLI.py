@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
 """
-Created on Sat Aug 12 16:18:30 2017
-
-@author: pista
+@author: pista, add people from kiwi
 """
 
-# imports
 import os
 import io
 import datetime
@@ -14,28 +11,34 @@ import json
 import argparse
 import requests
 import pandas as pd
+
 from pathlib import Path
 from bs4 import BeautifulSoup
 
-# class definitnions
+
 class ConvertMoney(object):
-    """A customer of ABC Bank with a checking account. Customers have the
-    following properties:
+    """Money to be converted from one currency to another according to
+    specified rates.
+    ConvertMoney has the following properties:
 
     Attributes:
-        amount: A float tracking the amount of money.
-        currency: A string code or symbol of currency.
+        amount: A float tracking the amount of money to be converted.
+        in_curr_symbol: A string code or symbol of input currency.
+        out_curr_symbol: A string code or symbol of output currency.
+
+    Methods:
+        get_current_rates: Calculate rates based on up to date exchange
+                           rates table.
+        convert currency: Convert amount to desired currency.
     """
 
     def __init__(self, amount=0.0, in_curr_symbol='CZK', out_curr_symbol=None):
-        """dafd
-        fdafdas."""
+        """Construct object with default values."""
         self.amount = amount
         self.in_curr_symbol = in_curr_symbol
         self.out_curr_symbol = out_curr_symbol
-    
-    def get_current_rates(self, rates_table):
-        
+
+    def check_currencies(self, rates_table):
         available_currencies = sorted(list(rates_table.loc[:,'code']))
         try:
             bad_symbol = self.in_curr_symbol
@@ -48,9 +51,16 @@ class ConvertMoney(object):
         except:
             print(bad_symbol, ''' is not in this currency table.
             Use one of the available currencies: '''), 
-            print(available_currencies)
+            print(currencies_list)
             raise SystemExit
-            
+
+    
+    def get_current_rates(self, rates_table):
+        """Returns DataFrame of all currencies converted values 
+        based on up to date exchange rates.
+        """
+        self.check_currencies(rates_table)
+
         self.input_currency = rates_table['code'][(rates_table['code'] == self.in_curr_symbol) |
                                         (rates_table['symbol'] == self.in_curr_symbol)].values[0]
         self.output_currency = rates_table['code'][(rates_table['code'] == self.out_curr_symbol) |
@@ -70,12 +80,13 @@ class ConvertMoney(object):
         self.output_table = rates_table.loc[:,['code', 'converted_amount']]
                      
     def convert_currency(self):
+        """Returns a dictionary with converted values for specified currencies.
+        """
         full_json = {}
         full_json['input'] = {}
         full_json['input']['amount'] = self.amount
-        full_json['input']['currency'] = self.input_currency # change for 3 code letter from table
+        full_json['input']['currency'] = self.input_currency
         full_json['output'] = {}
-        # iterate over row of df and add to output - need to do with rate and index as well
         if self.out_curr_symbol == 'ALL':
             full_json['output'] = dict(zip(self.output_table.code,
                                            self.output_table.converted_amount))
@@ -86,8 +97,9 @@ class ConvertMoney(object):
         return full_json
 
 
-# function definitions
 def create_directories(*args):
+    """Create empty subdirectories in current working directory 
+    if they don't exist"""
     for dir in args:
         if not os.path.exists(dir):
             os.makedirs(dir)
@@ -115,7 +127,8 @@ def create_cnb_date(string_date):
 
 def download_cnb_rates(string_date='now'):
     """
-    docs go here
+    Returns up to date DataFrame of currency exchange rates
+    downloaded from Czech National Bank website.
     """
     cnb_date = create_cnb_date(string_date)
     year = cnb_date[0:4]
@@ -132,6 +145,7 @@ def download_cnb_rates(string_date='now'):
     request_date = '-'.join([r.content.decode('utf-8')[6:10],
                              r.content.decode('utf-8')[3:5],
                              r.content.decode('utf-8')[0:2]])
+    # read text file from website
     exchange_rates_df = pd.read_csv(io.StringIO(r.content.decode('utf-8')),
                      sep='|', skiprows=[0])
     # add column with date to which are Exchange Raters valid
@@ -139,23 +153,25 @@ def download_cnb_rates(string_date='now'):
     return exchange_rates_df
 
 def complete_CNB_table(cnb_table):
+    """Returns clean rates DataFrame with added CZK rates.
+    Saves the DataFrame as a csv for further use, so the same table
+    won't be downloaded again, but will be read from working subdirectory."""
     # change decimal separator to dot and convert string to float
     cnb_table['kurz'] = [x.replace(',', '.') for x in cnb_table['kurz']]
     cnb_table['kurz'] = cnb_table['kurz'].astype(float)
     cnb_table.columns = ['country', 'currency', 'amount_index', 'code',
                                  'rate', 'date']
     # add czech currency row
-#    cnb_table = cnb_table.append(pd.Series(['Česko', 'koruna', 1, 'CZK', 1,
-#                                               cnb_table['date'][1]]),
-#                                ignore_index=True)
     cnb_table.loc[len(cnb_table)] = ['Česko', 'koruna', 1, 'CZK', 1,
                                                cnb_table['date'][0]]
-    cnb_table.to_csv(''.join(['rates_tables/cnb_table_', cnb_table['date'][0], '.csv']),
+    cnb_table.to_csv(''.join(['rates_tables/cnb_table_', 
+                              cnb_table['date'][0], '.csv']),
                       sep=';', index=False)
     return cnb_table
 
 def download_symbols_table():
-    """
+    """Returns a scraped and parsed currencies table
+    containing codes and symbols from Wikipedia.
     """
     url = 'https://en.wikipedia.org/wiki/List_of_circulating_currencies'
     req = requests.get(url)
@@ -172,10 +188,11 @@ def download_symbols_table():
         if len(text_rows[i]) == 5:
             text_rows[i].insert(0, text_rows[i-1][0])
     
-    return pd.DataFrame(text_rows, columns = text_header)
+    return pd.DataFrame(text_rows, columns=text_header)
     
 def clean_symbols_table(raw_symbols_table):
-    """
+    """Returns a clean DataFrame of currency names with currency symbols.
+    Saves the result in working subdirectory as a csv.
     """
     pd.options.mode.chained_assignment = None
     rename_df = raw_symbols_table.copy(deep=True)
@@ -199,9 +216,8 @@ def clean_symbols_table(raw_symbols_table):
     return deduplicated_df
 
 
-# main function
 def main():
-    # parse input
+    # parse command line input
     parser = argparse.ArgumentParser(description='Tool for converting  \
         specified amount of money from one currency to another, according to \
         the current rates of Czech National Bank.')
@@ -234,9 +250,8 @@ def main():
        raw_rates_df = download_cnb_rates('now')
        rates_df = complete_CNB_table(raw_rates_df)
        
-    symbol_rates_df = pd.merge(rates_df, symbols_df.iloc[:, 1:3],how='left',
-                               left_on='code', right_on='code')
-                               
+    symbol_rates_df = pd.merge(rates_df, symbols_df.iloc[:, 1:3], how='left',
+                               left_on='code', right_on='code')                           
     # pass arguments to object
     to_convert = ConvertMoney(args.amount, args.input_currency, args.output_currency)
     to_convert.get_current_rates(symbol_rates_df)
